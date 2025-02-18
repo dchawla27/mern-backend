@@ -1,3 +1,5 @@
+const { MONGO_URI, WS_URL, API_KEY, CLIENT_CODE, INTERVAL_MS, TIMEZONE, LOGIN_PIN } = require("../config");
+
 const express = require("express");
 const cors = require("cors");
 const WebSocket = require("ws");
@@ -6,7 +8,7 @@ const bodyParser = require('body-parser');
 
 
 
-const { calculateData, healthCheck, loginUser, searchScrip } = require("./api_file");
+const { calculateData, healthCheck, loginUser, searchScrip, orderToAngel, getOrderBook, getTredeBook } = require("./api_file");
 const validateHeaders = require("./middleware/validateHeaders");
 
 const app = express();
@@ -16,12 +18,31 @@ app.use(bodyParser.json());
 
 
 const PORT = 3001;
-const wsUrl = 'wss://smartapisocket.angelone.in/smart-stream';
+const wsUrl = WS_URL;
 
-mongoose.connect('mongodb+srv://root:root@cluster0.hsxcf.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0', {
+let clients = new Set();
+let socketInstance = null;
+let heartbeatInterval = null;
+let api_key = API_KEY;
+let client_code = CLIENT_CODE;
+let access_token = null;
+let feed_token = null;
+let refresh_token = null;
+let login_pin = LOGIN_PIN
+
+
+mongoose.connect(MONGO_URI, {
   useNewUrlParser: true,
   useUnifiedTopology: true,
-}).then(() => console.log('Connected to MongoDB'))
+}).then(async () => {
+  console.log('Connected to MongoDB')
+  let response = await updateSession()
+  if(response && response.length == 1){
+    access_token = response[0]['jwtToken']
+    feed_token = response[0]['feedToken']
+    refresh_token = response[0]['refreshToken']
+  }
+})
 .catch(err => console.error('MongoDB connection error:', err));;
 
 const orderSchema = new mongoose.Schema({
@@ -38,14 +59,15 @@ const orderSchema = new mongoose.Schema({
 const Orders = mongoose.model('Orders', orderSchema);
 
 
-let clients = new Set();
-let socketInstance = null;
-let heartbeatInterval = null;
-let api_key = null;
-let client_code = null;
-let access_token = null;
-let feed_token = null;
-let refresh_token = null;
+const settingsSchema = new mongoose.Schema({
+  recordId: Number,
+  isLiveOrdresAllowed: Boolean,
+  jwtToken: String,
+  refreshToken: String,
+  feedToken: String
+});
+
+const Settings = mongoose.model('Settings', settingsSchema);
 
 
 // Start WebSocket connection
@@ -92,7 +114,7 @@ const startWebSocket = () => {
 
     if (ltp === 0) return;
     
-    console.log('📊 Received LTP:', ltp);
+    // console.log('📊 Received LTP:', ltp);
 
     // Broadcast LTP to all connected clients
     clients.forEach((res) => {
@@ -116,37 +138,60 @@ const startWebSocket = () => {
   return socketInstance;
 };
 
-app.post("/login", async (req, res) => {
-  const { clientcode, password, totp } = req.body;
-  try {
-    const response = await loginUser(clientcode, password, totp);
-    res.json(response.status ? 
-      { success: true, message: "Login successful", data: response.data } : 
-      { success: false, message: response.message || "Login failed", errorCode: response.errorcode || "UNKNOWN_ERROR" }
+app.get("/logout", async (req,res) => {
+  const mainSetting = await Settings.find({ recordId: 1 });
+  if(mainSetting?.length > 0){
+    await Settings.findByIdAndUpdate(
+      mainSetting[0]._id.toString(),
+      { jwtToken: "" },
+      { refreshToken: "" },
+      { feedToken: "" }
     );
+    access_token = ""
+    feed_token = ""
+    refresh_token = ""
+    res.json({ success: true, message: "Logout successful" })
+  }
+}) 
+
+app.post("/login", async (req, res) => {
+  const { totp } = req.body;
+  try {
+    const response = await loginUser(api_key,client_code, login_pin, totp);
+    if(response.status){
+    const mainSetting = await Settings.find({ recordId: 1 });
+    if(mainSetting?.length > 0){
+      await Settings.findByIdAndUpdate(
+        mainSetting[0]._id.toString(),
+        { jwtToken: response.data.jwtToken, refreshToken: response.data.refreshToken, feedToken: response.data.feedToken },
+        { new: true }
+      );
+      access_token = response.data.jwtToken
+      feed_token = response.data.feedToken
+      refresh_token = response.data.feedToken
+      res.json({ success: true, message: "Login successful", data: response.data })
+    }
+    }else{
+      res.json({ success: false, message: response.message || "Login failed", errorCode: response.errorcode || "UNKNOWN_ERROR" })
+    }
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
 });
 
-app.get("/healthCheck",validateHeaders, async (req, res) => {
+app.get("/healthCheck", async (req, res) => {
   try {
-    api_key = req.api_key
-    client_code = req.client_code
-    access_token = req.access_token
-    feed_token = req.feed_token
-    refresh_token = req.refresh_token
-    const data = await healthCheck(req.api_key, req.client_code, req.access_token,req.feed_token,req.refresh_token);
+    const data = await healthCheck(api_key, client_code, access_token,feed_token,refresh_token);
     res.json(data);
   } catch (error) {
     res.status(500).json({ error: "Failed to fetch health data" });
   }
 });
 
-app.get("/getCandleData",validateHeaders, async (req, res) => {
+app.get("/getCandleData", async (req, res) => {
   try {
     const {symboltoken, exchange} = req.query
-    const data = await calculateData(req.api_key, req.client_code, req.access_token,req.feed_token,req.refresh_token, symboltoken, exchange);
+    const data = await calculateData(api_key, client_code, access_token,feed_token,refresh_token, symboltoken, exchange);
     res.json(data);
   } catch (error) {
     res.status(500).json({ error: "Failed to fetch candle data" });
@@ -178,7 +223,7 @@ app.get('/stock-price', (req, res) => {
   });
 });
 
-app.get("/getAllOrders",validateHeaders, async (req, res) => {
+app.get("/getAllOrders", async (req, res) => {
   try {
     const allOrders = await Orders.find(); // Retrieve all users
     res.json(allOrders);
@@ -188,7 +233,7 @@ app.get("/getAllOrders",validateHeaders, async (req, res) => {
   }
 });
 
-app.post('/placeOrder',validateHeaders, async (req, res) => {
+app.post('/placeOrder', async (req, res) => {
   try {
 
     let newOrder = null;
@@ -211,22 +256,54 @@ app.post('/placeOrder',validateHeaders, async (req, res) => {
   }
 });
 
-app.post("/searchScrip",validateHeaders, async (req, res) => {
+app.post('/orderToAngel', async (req, res) => {
   try {
-    api_key = req.api_key
-    client_code = req.client_code
-    access_token = req.access_token
-    feed_token = req.feed_token
-    refresh_token = req.refresh_token
+   let order =  await orderToAngel(api_key, client_code, access_token,feed_token,refresh_token);
+    res.json(order);
+    console.log(order)
+  } catch (error) {
+    res.status(500).send('Error storing data');
+  }
+});
+
+app.get('/getOrderBook', async (req, res) => {
+  try {
+    const data = await getOrderBook(api_key, client_code, access_token,feed_token,refresh_token);
+    res.json(data);
+  } catch (error) {
+    res.status(500).send('Error storing data');
+  }
+});
+
+app.get('/getTredBook', async (req, res) => {
+  try {
+    const data = await getTredeBook(api_key, client_code, access_token,feed_token,refresh_token);
+    res.json(data);
+  } catch (error) {
+    res.status(500).send('Error storing data');
+  }
+});
+
+app.post("/searchScrip", async (req, res) => {
+  try {
+   
     const {symboltoken} = req.body
-    const data = await searchScrip(req.api_key, req.client_code, req.access_token,req.feed_token,req.refresh_token,symboltoken);
+    const data = await searchScrip(api_key, client_code, access_token,feed_token,refresh_token,symboltoken);
     res.json(data);
   } catch (error) {
     res.status(500).json({ error: "Failed to fetch health data" });
   }
 });
 
+async function updateSession(){
+  try{
+    const allSettings = await Settings.find();
+    return allSettings;
+  }catch(e){
+    console.log('error getting the site settings', e)
+  }
+}
 // Start Express Server
-app.listen(PORT, () => {
+app.listen(PORT, async () => {
   console.log(`🚀 Server is running on http://localhost:${PORT}`);
 });

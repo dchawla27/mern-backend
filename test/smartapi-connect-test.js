@@ -461,7 +461,7 @@ describe("SmartApi_MarginAPI", () => {
                 if(data.length > 0){
                     assert(Array.isArray(searchScripRes))
                 }else if (data?.status === true && data?.data?.length === 0) {
-					console.log("Search successful. No matching trading symbols found for the given query.");
+					// console.log("Search successful. No matching trading symbols found for the given query.");
 					assert(Array.isArray(searchScripRes))
 				} else {
 					assert(Array.isArray(searchScripRes))
