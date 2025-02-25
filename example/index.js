@@ -143,9 +143,8 @@ app.get("/logout", async (req,res) => {
   if(mainSetting?.length > 0){
     await Settings.findByIdAndUpdate(
       mainSetting[0]._id.toString(),
-      { jwtToken: "" },
-      { refreshToken: "" },
-      { feedToken: "" }
+      { jwtToken: "", refreshToken: "", feedToken: "" },
+      { new: true }
     );
     access_token = ""
     feed_token = ""
