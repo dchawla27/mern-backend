@@ -8,7 +8,7 @@ const bodyParser = require('body-parser');
 
 
 
-const { calculateData, healthCheck, loginUser, searchScrip, orderToAngel, getOrderBook, getTredeBook } = require("./api_file");
+const { calculateData, healthCheck, loginUser, searchScrip, orderToAngel, getOrderBook, getTredeBook, getHolding } = require("./api_file");
 const validateHeaders = require("./middleware/validateHeaders");
 
 const app = express();
@@ -277,6 +277,15 @@ app.get('/getOrderBook', async (req, res) => {
 app.get('/getTredBook', async (req, res) => {
   try {
     const data = await getTredeBook(api_key, client_code, access_token,feed_token,refresh_token);
+    res.json(data);
+  } catch (error) {
+    res.status(500).send('Error storing data');
+  }
+});
+
+app.get('/getHolding', async (req, res) => {
+  try {
+    const data = await getHolding(api_key, client_code, access_token,feed_token,refresh_token);
     res.json(data);
   } catch (error) {
     res.status(500).send('Error storing data');

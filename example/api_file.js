@@ -202,7 +202,22 @@ async function getTredeBook(api_key, client_code, access_token, feed_token, refr
   }
   
 }
+async function getHolding(api_key, client_code, access_token, feed_token, refresh_token){
+  let smart_api = new SmartAPI({
+    api_key,
+    access_token,
+    refresh_token,
+  });
+  try {
+    
+    return await smart_api.getHolding();
+  } catch (error) {
+    console.error("Error in searchScrip:", error);
+    return null;
+  }
+  
+}
 
 
 
-module.exports = { healthCheck, calculateData, loginUser, searchScrip, orderToAngel,getOrderBook, getTredeBook };
+module.exports = { healthCheck, calculateData, loginUser, searchScrip, orderToAngel,getOrderBook, getTredeBook, getHolding };
