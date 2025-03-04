@@ -303,6 +303,17 @@ app.post("/searchScrip", async (req, res) => {
   }
 });
 
+app.get("/getSuperTrend", async (req, res) => {
+  try {
+    const db = mongoose.connection.db;
+    const data = await db.collection('algotrends').find({}).toArray(); 
+    res.json(data);
+  } catch (err) {
+    console.error('Error fetching users:', err);
+    res.status(500).json({ error: 'Failed to fetch users' });
+  }
+});
+
 async function updateSession(){
   try{
     const allSettings = await Settings.find();
