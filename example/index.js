@@ -232,6 +232,37 @@ app.get("/getAllOrders", async (req, res) => {
   }
 });
 
+
+app.post("/updateLiveOrdersSetting", async (req, res) => {
+  try {
+    const {id, isLiveOrdresAllowed} = req.body
+    await Settings.findByIdAndUpdate(
+      id,
+      { isLiveOrdresAllowed },
+      { new: true }
+    );
+    res.json({ success: true});
+  } catch (error) {
+    res.status(500).json({ error: "Failed to fetch health data" });
+  }
+});
+
+app.get("/getAllSettings", async (req, res) => {
+  try {
+    const allSettings = await Settings.find({}, { isLiveOrdresAllowed: 1, recordId: 1, _id: 1 }).exec(); 
+
+    if (allSettings.length > 0) {
+      res.json(allSettings[0]);  
+    } else {
+      res.status(404).json({ error: "No settings found" });
+    }
+  } catch (err) {
+    console.error("Error fetching settings:", err);
+    res.status(500).json({ error: "Failed to fetch settings" });
+  }
+});
+
+
 app.post('/placeOrder', async (req, res) => {
   try {
 
@@ -306,7 +337,11 @@ app.post("/searchScrip", async (req, res) => {
 app.get("/getSuperTrend", async (req, res) => {
   try {
     const db = mongoose.connection.db;
-    const data = await db.collection('algotrends').find({}).toArray(); 
+    const data = await db.collection('algotrends')
+    .find({})
+    .sort({ _id: -1 })
+    .limit(2200) 
+    .toArray();
     res.json(data);
   } catch (err) {
     console.error('Error fetching users:', err);
